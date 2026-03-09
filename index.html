@@ -778,386 +778,381 @@ Staff Variance = Available HC - Required HC</code>
   </div>
 
   <script>
-  const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-  let scenarioResults = {};
-  let selectedScenario = null;
-  let generatedRosterRows = [];
-  let generatedCoverageRows = [];
-  let summaryRows = [];
-
-  function getDemandInputs() {
-    return {
-      Mon: Number(document.getElementById("mon").value || 0),
-      Tue: Number(document.getElementById("tue").value || 0),
-      Wed: Number(document.getElementById("wed").value || 0),
-      Thu: Number(document.getElementById("thu").value || 0),
-      Fri: Number(document.getElementById("fri").value || 0),
-      Sat: Number(document.getElementById("sat").value || 0),
-      Sun: Number(document.getElementById("sun").value || 0)
+    const tabs = document.querySelectorAll('.tab-btn');
+    const sections = {
+      volume: document.getElementById('section-volume'),
+      daily: document.getElementById('section-daily'),
+      monthly: document.getElementById('section-monthly')
     };
-  }
 
-  function loadExample() {
-    document.getElementById("mon").value = 15;
-    document.getElementById("tue").value = 15;
-    document.getElementById("wed").value = 15;
-    document.getElementById("thu").value = 15;
-    document.getElementById("fri").value = 15;
-    document.getElementById("sat").value = 5;
-    document.getElementById("sun").value = 5;
-  }
+    let activeTab = 'volume';
 
-  function getWeeklyDemand(demand) {
-    return DAYS.reduce((sum, day) => sum + Number(demand[day] || 0), 0);
-  }
+    const defaultValues = {
+      volume: {
+        volVolume: 300,
+        volAHT: 300,
+        volOccupancy: 80,
+        volShrinkage: 10,
+        volHours: 1,
+        volAvailableHC: 10,
+        volCostType: 'salary',
+        volSalary: 3000,
+        volTotalCost: 30000,
+        volRevenue: 30000
+      },
+      daily: {
+        dayRequiredHours: 120,
+        dayProdPerAgent: 8,
+        dayAvailableHC: 20,
+        dayCostType: 'salary',
+        daySalary: 3000,
+        dayTotalCost: 60000,
+        dayRevenue: 12000
+      },
+      monthly: {
+        monRequiredHours: 2400,
+        monProdPerAgent: 176,
+        monAvailableHC: 20,
+        monCostType: 'salary',
+        monSalary: 3000,
+        monTotalCost: 60000,
+        monRevenue: 300000
+      }
+    };
 
-  function getScenarioNote(workDays) {
-    if (workDays === 5) return "Best balance";
-    if (workDays === 6) return "Lower HC need";
-    return "Full-week work pattern";
-  }
+    const metricRequiredHC = document.getElementById('metricRequiredHC');
+    const metricCurrentCost = document.getElementById('metricCurrentCost');
+    const metricOptimizedCost = document.getElementById('metricOptimizedCost');
+    const metricProfit = document.getElementById('metricProfit');
+    const metricLeakage = document.getElementById('metricLeakage');
+    const metricRevenueRisk = document.getElementById('metricRevenueRisk');
+    const metricMargin = document.getElementById('metricMargin');
+    const metricOptimizedMargin = document.getElementById('metricOptimizedMargin');
+    const metricVariance = document.getElementById('metricVariance');
+    const resultFooter = document.getElementById('resultFooter');
 
-  function calculateScenarios() {
-    const demand = getDemandInputs();
-    const weeklyDemand = getWeeklyDemand(demand);
-    const buffer = Number(document.getElementById("bufferHC").value || 0);
+    const staffAvailValue = document.getElementById('staffAvailValue');
+    const staffReqValue = document.getElementById('staffReqValue');
+    const staffAvailBar = document.getElementById('staffAvailBar');
+    const staffReqBar = document.getElementById('staffReqBar');
 
-    scenarioResults = {};
+    const impactLeakageValue = document.getElementById('impactLeakageValue');
+    const impactRiskValue = document.getElementById('impactRiskValue');
+    const impactLeakageBar = document.getElementById('impactLeakageBar');
+    const impactRiskBar = document.getElementById('impactRiskBar');
 
-    [5, 6, 7].forEach(workDays => {
-      const minHC = Math.ceil(weeklyDemand / workDays);
-      const finalHC = minHC + buffer;
+    const marginCurrentValue = document.getElementById('marginCurrentValue');
+    const marginOptimizedValue = document.getElementById('marginOptimizedValue');
+    const marginCurrentBar = document.getElementById('marginCurrentBar');
+    const marginOptimizedBar = document.getElementById('marginOptimizedBar');
 
-      scenarioResults[workDays] = {
-        workDays,
-        weeklyDemand,
-        minHC,
-        finalHC,
-        note: getScenarioNote(workDays)
+    const rcaText = document.getElementById('rcaText');
+    const actionText = document.getElementById('actionText');
+
+    function safeNumber(value) {
+      const num = parseFloat(value);
+      return Number.isFinite(num) ? num : 0;
+    }
+
+    function formatCurrency(value) {
+      return `$ ${Number(value).toLocaleString(undefined, {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2
+      })}`;
+    }
+
+    function formatHC(value) {
+      return Number(value).toLocaleString(undefined, {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2
+      });
+    }
+
+    function formatPercent(value) {
+      return `${Number(value).toFixed(2)} %`;
+    }
+
+    function getBarHeight(value, maxValue) {
+      if (maxValue <= 0) return 10;
+      const scaled = (value / maxValue) * 120;
+      return Math.max(10, Math.min(120, scaled));
+    }
+
+    function updateCostInputVisibility(prefix) {
+      const type = document.getElementById(`${prefix}CostType`).value;
+      const salaryWrap = document.getElementById(`${prefix}SalaryWrap`);
+      const totalWrap = document.getElementById(`${prefix}TotalCostWrap`);
+
+      if (type === 'salary') {
+        salaryWrap.classList.remove('hidden');
+        totalWrap.classList.add('hidden');
+      } else {
+        salaryWrap.classList.add('hidden');
+        totalWrap.classList.remove('hidden');
+      }
+    }
+
+    function deriveCosts(prefix, availableHC, requiredHC) {
+      const type = document.getElementById(`${prefix}CostType`).value;
+
+      let currentCost = 0;
+      let optimizedCost = 0;
+      let costPerHC = 0;
+
+      if (type === 'salary') {
+        const salary = safeNumber(document.getElementById(`${prefix}Salary`).value);
+        costPerHC = salary;
+        currentCost = availableHC * salary;
+        optimizedCost = requiredHC * salary;
+      } else {
+        const totalCost = safeNumber(document.getElementById(`${prefix}TotalCost`).value);
+        currentCost = totalCost;
+        costPerHC = availableHC > 0 ? totalCost / availableHC : 0;
+        optimizedCost = requiredHC * costPerHC;
+      }
+
+      return { currentCost, optimizedCost, costPerHC };
+    }
+
+    function calculateVolume() {
+      const volume = safeNumber(document.getElementById('volVolume').value);
+      const aht = safeNumber(document.getElementById('volAHT').value);
+      const occupancyPct = safeNumber(document.getElementById('volOccupancy').value);
+      const shrinkagePct = safeNumber(document.getElementById('volShrinkage').value);
+      const hours = safeNumber(document.getElementById('volHours').value);
+      const availableHC = safeNumber(document.getElementById('volAvailableHC').value);
+      const revenue = safeNumber(document.getElementById('volRevenue').value);
+
+      const occupancy = occupancyPct > 0 ? occupancyPct / 100 : 0;
+      const shrinkage = shrinkagePct > 0 ? shrinkagePct / 100 : 0;
+
+      let baseRequiredHC = 0;
+      if (occupancy > 0 && hours > 0) {
+        baseRequiredHC = (volume * aht) / 3600 / hours / occupancy;
+      }
+
+      let requiredHC = baseRequiredHC;
+      if (shrinkage < 1) {
+        requiredHC = baseRequiredHC / Math.max(0.0001, (1 - shrinkage));
+      }
+
+      return buildCommercialResult({
+        requiredHC,
+        availableHC,
+        revenue,
+        modeLabel: 'Volume-Based HC',
+        costData: deriveCosts('vol', availableHC, requiredHC)
+      });
+    }
+
+    function calculateDaily() {
+      const requiredHours = safeNumber(document.getElementById('dayRequiredHours').value);
+      const productionPerAgent = safeNumber(document.getElementById('dayProdPerAgent').value);
+      const availableHC = safeNumber(document.getElementById('dayAvailableHC').value);
+      const revenue = safeNumber(document.getElementById('dayRevenue').value);
+
+      let requiredHC = 0;
+      if (productionPerAgent > 0) {
+        requiredHC = requiredHours / productionPerAgent;
+      }
+
+      return buildCommercialResult({
+        requiredHC,
+        availableHC,
+        revenue,
+        modeLabel: 'Daily Production Billing',
+        costData: deriveCosts('day', availableHC, requiredHC)
+      });
+    }
+
+    function calculateMonthly() {
+      const requiredHours = safeNumber(document.getElementById('monRequiredHours').value);
+      const productionPerAgent = safeNumber(document.getElementById('monProdPerAgent').value);
+      const availableHC = safeNumber(document.getElementById('monAvailableHC').value);
+      const revenue = safeNumber(document.getElementById('monRevenue').value);
+
+      let requiredHC = 0;
+      if (productionPerAgent > 0) {
+        requiredHC = requiredHours / productionPerAgent;
+      }
+
+      return buildCommercialResult({
+        requiredHC,
+        availableHC,
+        revenue,
+        modeLabel: 'Monthly Production Billing',
+        costData: deriveCosts('mon', availableHC, requiredHC)
+      });
+    }
+
+    function buildCommercialResult({ requiredHC, availableHC, revenue, modeLabel, costData }) {
+      const { currentCost, optimizedCost, costPerHC } = costData;
+
+      const staffVariance = availableHC - requiredHC;
+      const overstaffHC = Math.max(availableHC - requiredHC, 0);
+      const understaffHC = Math.max(requiredHC - availableHC, 0);
+
+      const leakage = overstaffHC > 0 ? overstaffHC * costPerHC : 0;
+      const revenueRisk = (understaffHC > 0 && requiredHC > 0) ? understaffHC * (revenue / requiredHC) : 0;
+      const profit = revenue - currentCost;
+      const marginPct = revenue > 0 ? ((revenue - currentCost) / revenue) * 100 : 0;
+      const optimizedMarginPct = revenue > 0 ? ((revenue - optimizedCost) / revenue) * 100 : 0;
+
+      return {
+        modeLabel,
+        requiredHC,
+        availableHC,
+        currentCost,
+        optimizedCost,
+        profit,
+        leakage,
+        revenueRisk,
+        marginPct,
+        optimizedMarginPct,
+        staffVariance
       };
-    });
-
-    renderComparisonTable();
-    document.getElementById("weeklyDemandBox").innerText = `Weekly Demand: ${weeklyDemand} agent-days`;
-    document.getElementById("comparisonSection").classList.remove("hidden");
-
-    document.querySelectorAll('input[name="scenario"]').forEach(r => r.checked = false);
-
-    document.getElementById("summarySection").classList.add("hidden");
-    document.getElementById("rosterSection").classList.add("hidden");
-    document.getElementById("coverageSection").classList.add("hidden");
-    document.getElementById("insightSection").classList.add("hidden");
-    document.getElementById("exportSection").classList.add("hidden");
-  }
-
-  function renderComparisonTable() {
-    const tbody = document.querySelector("#comparisonTable tbody");
-    tbody.innerHTML = "";
-
-    [5, 6, 7].forEach(workDays => {
-      const s = scenarioResults[workDays];
-      tbody.innerHTML += `
-        <tr>
-          <td>${s.workDays} Days</td>
-          <td>${s.minHC}</td>
-          <td>${s.finalHC}</td>
-          <td>${s.note}</td>
-        </tr>
-      `;
-    });
-  }
-
-  function getSelectedScenarioValue() {
-    const checked = document.querySelector('input[name="scenario"]:checked');
-    return checked ? Number(checked.value) : null;
-  }
-
-  function getOffCombos(workDays, pattern) {
-    const offDays = 7 - workDays;
-    if (offDays <= 0) return [[]];
-
-    const combos = [];
-
-    if (offDays === 1) {
-      for (let i = 0; i < 7; i++) combos.push([i]);
-      return combos;
     }
 
-    if (offDays === 2) {
-      const continuous = [];
-      const split = [];
+    function getActiveResult() {
+      if (activeTab === 'volume') return calculateVolume();
+      if (activeTab === 'daily') return calculateDaily();
+      return calculateMonthly();
+    }
 
-      for (let i = 0; i < 7; i++) {
-        continuous.push([i, (i + 1) % 7]);
+    function buildRCA(result) {
+      const {
+        availableHC,
+        requiredHC,
+        staffVariance,
+        leakage,
+        revenueRisk,
+        profit,
+        marginPct,
+        optimizedMarginPct
+      } = result;
+
+      let rca = '';
+      let action = '';
+
+      if (availableHC > requiredHC) {
+        rca = `Overstaffing is the main driver. Available HC is above required HC by ${formatHC(Math.abs(staffVariance))}. This is creating real leakage of ${formatCurrency(leakage)} through excess paid capacity.`;
+        action = `Reduce avoidable overstaffing by rebalancing schedules, cross-utilizing spare capacity, or aligning paid HC closer to actual demand.`;
+      } else if (availableHC < requiredHC) {
+        rca = `Understaffing is the main driver. Available HC is below required HC by ${formatHC(Math.abs(staffVariance))}. Leakage is zero, but revenue risk is estimated at ${formatCurrency(revenueRisk)} due to insufficient capacity.`;
+        action = `Add staffing, review productive-hour assumptions, and prioritize the most critical periods or work types to reduce delivery and revenue risk.`;
+      } else {
+        rca = `Staffing is closely aligned with requirement. Leakage is zero and revenue risk is zero because available HC is matching required HC.`;
+        action = `Maintain alignment, continue monitoring demand and productivity inputs, and fine-tune only when demand or cost assumptions change.`;
       }
 
-      for (let i = 0; i < 7; i++) {
-        for (let j = i + 1; j < 7; j++) {
-          const adjacent = (j === i + 1) || (i === 0 && j === 6);
-          if (!adjacent) split.push([i, j]);
-        }
+      if (profit > 0) {
+        rca += ` Current operation is profitable with profit at ${formatCurrency(profit)}.`;
+      } else if (profit < 0) {
+        rca += ` Current operation is loss-making with profit at ${formatCurrency(profit)}.`;
       }
 
-      if (pattern === "continuous") return continuous;
-      if (pattern === "split") return split;
-      return continuous.concat(split);
-    }
-
-    return [[]];
-  }
-
-  function comboPenalty(combo, demand, coverage, pattern) {
-    let penalty = 0;
-
-    // Build projected schedule from this combo
-    DAYS.forEach((day, idx) => {
-      const works = !combo.includes(idx);
-      const projected = coverage[day] + (works ? 1 : 0);
-      const req = demand[day] || 0;
-
-      if (projected > req) {
-        penalty += (projected - req) * 10;
+      if (optimizedMarginPct > marginPct + 0.25) {
+        action += ` There is a visible margin improvement opportunity, as optimized margin is above current margin.`;
       }
-    });
 
-    // Soft preference rules
-    const weekendOffCount =
-      (combo.includes(5) ? 1 : 0) +
-      (combo.includes(6) ? 1 : 0);
-
-    if (pattern === "best") {
-      // prefer placing OFF on low demand days
-      penalty += combo.reduce((sum, idx) => sum + (demand[DAYS[idx]] || 0), 0);
+      return { rca, action };
     }
 
-    if (pattern === "continuous") {
-      // slight preference for Sat-Sun and Sun-Mon if weekend demand is lower
-      if ((combo[0] === 5 && combo[1] === 6) || (combo[0] === 6 && combo[1] === 0)) {
-        penalty -= 2;
-      }
-      penalty -= weekendOffCount;
+    function updateMetrics(result) {
+      metricRequiredHC.textContent = formatHC(result.requiredHC);
+      metricCurrentCost.textContent = formatCurrency(result.currentCost);
+      metricOptimizedCost.textContent = formatCurrency(result.optimizedCost);
+      metricProfit.textContent = formatCurrency(result.profit);
+      metricLeakage.textContent = formatCurrency(result.leakage);
+      metricRevenueRisk.textContent = formatCurrency(result.revenueRisk);
+      metricMargin.textContent = formatPercent(result.marginPct);
+      metricOptimizedMargin.textContent = formatPercent(result.optimizedMarginPct);
+      metricVariance.textContent = formatHC(result.staffVariance);
+
+      resultFooter.textContent = `${result.modeLabel} is active. Leakage shows only when it truly exists. Revenue risk shows only when understaffing exists.`;
     }
 
-    if (pattern === "split") {
-      penalty -= weekendOffCount;
+    function updateCharts(result) {
+      staffAvailValue.textContent = formatHC(result.availableHC);
+      staffReqValue.textContent = formatHC(result.requiredHC);
+
+      const hcMax = Math.max(result.availableHC, result.requiredHC, 1);
+      staffAvailBar.style.height = `${getBarHeight(result.availableHC, hcMax)}px`;
+      staffReqBar.style.height = `${getBarHeight(result.requiredHC, hcMax)}px`;
+
+      impactLeakageValue.textContent = formatCurrency(result.leakage);
+      impactRiskValue.textContent = formatCurrency(result.revenueRisk);
+
+      const impactMax = Math.max(result.leakage, result.revenueRisk, 1);
+      impactLeakageBar.style.height = `${getBarHeight(result.leakage, impactMax)}px`;
+      impactRiskBar.style.height = `${getBarHeight(result.revenueRisk, impactMax)}px`;
+
+      marginCurrentValue.textContent = formatPercent(result.marginPct);
+      marginOptimizedValue.textContent = formatPercent(result.optimizedMarginPct);
+
+      const marginMax = Math.max(Math.abs(result.marginPct), Math.abs(result.optimizedMarginPct), 1);
+      marginCurrentBar.style.height = `${getBarHeight(Math.abs(result.marginPct), marginMax)}px`;
+      marginOptimizedBar.style.height = `${getBarHeight(Math.abs(result.optimizedMarginPct), marginMax)}px`;
+
+      marginCurrentBar.className = 'bar-visual ' + (result.marginPct >= 0 ? 'bar-orange' : 'bar-red');
+      marginOptimizedBar.className = 'bar-visual ' + (result.optimizedMarginPct >= 0 ? 'bar-green' : 'bar-red');
+      staffReqBar.className = 'bar-visual ' + (result.availableHC >= result.requiredHC ? 'bar-green' : 'bar-red');
     }
 
-    return penalty;
-  }
+    function updateRCA(result) {
+      const insights = buildRCA(result);
+      rcaText.textContent = insights.rca;
+      actionText.textContent = insights.action;
+    }
 
-  function buildRoster(activeHC, workDays, demand, pattern) {
-    const offCombos = getOffCombos(workDays, pattern);
-    const agents = [];
-    const coverage = { Mon:0, Tue:0, Wed:0, Thu:0, Fri:0, Sat:0, Sun:0 };
+    function updateAll() {
+      updateCostInputVisibility('vol');
+      updateCostInputVisibility('day');
+      updateCostInputVisibility('mon');
 
-    for (let i = 0; i < activeHC; i++) {
-      let bestCombo = null;
-      let bestPenalty = Infinity;
+      const result = getActiveResult();
+      updateMetrics(result);
+      updateCharts(result);
+      updateRCA(result);
+    }
 
-      offCombos.forEach(combo => {
-        const p = comboPenalty(combo, demand, coverage, pattern);
-        if (p < bestPenalty) {
-          bestPenalty = p;
-          bestCombo = combo;
-        }
+    function switchTab(tab) {
+      activeTab = tab;
+
+      tabs.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
       });
 
-      const roster = {
-        Agent: `Agent ${i + 1}`,
-        Mon: bestCombo.includes(0) ? "OFF" : "W",
-        Tue: bestCombo.includes(1) ? "OFF" : "W",
-        Wed: bestCombo.includes(2) ? "OFF" : "W",
-        Thu: bestCombo.includes(3) ? "OFF" : "W",
-        Fri: bestCombo.includes(4) ? "OFF" : "W",
-        Sat: bestCombo.includes(5) ? "OFF" : "W",
-        Sun: bestCombo.includes(6) ? "OFF" : "W"
-      };
-
-      DAYS.forEach(day => {
-        if (roster[day] === "W") coverage[day] += 1;
+      Object.keys(sections).forEach(key => {
+        sections[key].classList.toggle('active', key === tab);
       });
 
-      agents.push(roster);
+      updateAll();
     }
 
-    return { agents, coverage };
-  }
+    tabs.forEach(btn => {
+      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
 
-  function addReserveAgents(rosterRows, reserveCount) {
-    const start = rosterRows.length + 1;
-    for (let i = 0; i < reserveCount; i++) {
-      rosterRows.push({
-        Agent: `Agent ${start + i}`,
-        Mon: "RESERVE",
-        Tue: "RESERVE",
-        Wed: "RESERVE",
-        Thu: "RESERVE",
-        Fri: "RESERVE",
-        Sat: "RESERVE",
-        Sun: "RESERVE"
+    document.querySelectorAll('input, select').forEach(el => {
+      el.addEventListener('input', updateAll);
+      el.addEventListener('change', updateAll);
+    });
+
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      Object.entries(defaultValues.volume).forEach(([id, value]) => {
+        document.getElementById(id).value = value;
       });
-    }
-    return rosterRows;
-  }
-
-  function generateSchedule() {
-    const workDays = getSelectedScenarioValue();
-    if (!workDays) {
-      alert("Please select a scenario first.");
-      return;
-    }
-
-    selectedScenario = { ...scenarioResults[workDays] };
-
-    const demand = getDemandInputs();
-    const pattern = document.getElementById("weekOffPattern").value;
-
-    generatedRosterRows = [];
-    generatedCoverageRows = [];
-    summaryRows = [];
-
-    const maxDailyReq = Math.max(...DAYS.map(day => demand[day] || 0));
-    const activeHC = Math.max(selectedScenario.minHC, maxDailyReq);
-    const finalHC = Math.max(selectedScenario.finalHC, activeHC);
-    const reserveHC = Math.max(0, finalHC - activeHC);
-
-    const rosterBuild = buildRoster(activeHC, workDays, demand, pattern);
-    generatedRosterRows = addReserveAgents(rosterBuild.agents.slice(), reserveHC);
-
-    generatedCoverageRows = DAYS.map(day => ({
-      Day: day,
-      "Required HC": demand[day] || 0,
-      "Scheduled HC": rosterBuild.coverage[day] || 0
-    }));
-
-    selectedScenario.finalHC = finalHC;
-
-    summaryRows.push({
-      "Weekly Demand": selectedScenario.weeklyDemand,
-      "Work Days Per Agent": selectedScenario.workDays,
-      "Minimum HC": selectedScenario.minHC,
-      "Active HC Used for Coverage": activeHC,
-      "Final HC Target": selectedScenario.finalHC,
-      "Reserve HC": reserveHC,
-      "Week Off Pattern": pattern
+      Object.entries(defaultValues.daily).forEach(([id, value]) => {
+        document.getElementById(id).value = value;
+      });
+      Object.entries(defaultValues.monthly).forEach(([id, value]) => {
+        document.getElementById(id).value = value;
+      });
+      updateAll();
     });
 
-    renderSummary();
-    renderRoster();
-    renderCoverage();
-    renderInsight(activeHC, reserveHC);
-
-    document.getElementById("summarySection").classList.remove("hidden");
-    document.getElementById("rosterSection").classList.remove("hidden");
-    document.getElementById("coverageSection").classList.remove("hidden");
-    document.getElementById("insightSection").classList.remove("hidden");
-    document.getElementById("exportSection").classList.remove("hidden");
-  }
-
-  function renderSummary() {
-    document.getElementById("kpiWeeklyDemand").innerText = selectedScenario.weeklyDemand;
-    document.getElementById("kpiWorkDays").innerText = selectedScenario.workDays;
-    document.getElementById("kpiMinHC").innerText = selectedScenario.minHC;
-    document.getElementById("kpiFinalHC").innerText = selectedScenario.finalHC;
-  }
-
-  function renderRoster() {
-    const tbody = document.querySelector("#rosterTable tbody");
-    tbody.innerHTML = "";
-
-    generatedRosterRows.forEach(r => {
-      tbody.innerHTML += `
-        <tr>
-          <td>${r.Agent}</td>
-          <td>${r.Mon}</td>
-          <td>${r.Tue}</td>
-          <td>${r.Wed}</td>
-          <td>${r.Thu}</td>
-          <td>${r.Fri}</td>
-          <td>${r.Sat}</td>
-          <td>${r.Sun}</td>
-        </tr>
-      `;
-    });
-  }
-
-  function renderCoverage() {
-    const tbody = document.querySelector("#coverageTable tbody");
-    tbody.innerHTML = "";
-
-    generatedCoverageRows.forEach(r => {
-      tbody.innerHTML += `
-        <tr>
-          <td>${r.Day}</td>
-          <td>${r["Required HC"]}</td>
-          <td>${r["Scheduled HC"]}</td>
-        </tr>
-      `;
-    });
-  }
-
-  function renderInsight(activeHC, reserveHC) {
-    const exactDays = generatedCoverageRows.filter(r => r["Required HC"] === r["Scheduled HC"]).length;
-
-    let insight = `
-      Total weekly demand is ${selectedScenario.weeklyDemand} agent-days.<br><br>
-      With a ${selectedScenario.workDays}-day work pattern, the minimum headcount required is ${selectedScenario.minHC} agents.<br><br>
-      The planner used ${activeHC} agents for direct day-level coverage and ${reserveHC} agents as reserve/buffer capacity.<br><br>
-      Exact daily coverage was achieved on ${exactDays} out of 7 days.<br><br>
-    `;
-
-    if (exactDays === 7) {
-      insight += `The generated schedule matches required HC exactly across the full week.`;
-    } else {
-      insight += `Some mismatch remains. In that case, increase the buffer or choose a different work pattern.`;
-    }
-
-    document.getElementById("plannerInsight").innerHTML = insight;
-  }
-
-  function rowsToCSV(rows) {
-    if (!rows.length) return "";
-    const headers = Object.keys(rows[0]);
-    const lines = [
-      headers.join(","),
-      ...rows.map(r => headers.map(h => `"${String(r[h] ?? "").replace(/"/g, '""')}"`).join(","))
-    ];
-    return lines.join("\n");
-  }
-
-  function downloadTextFile(content, fileName) {
-    const blob = new Blob([content], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = fileName;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }
-
-  function downloadWeeklySchedule() {
-    if (!generatedRosterRows.length) {
-      alert("Generate a schedule first.");
-      return;
-    }
-    downloadTextFile(rowsToCSV(generatedRosterRows), "weekly_staffing_schedule.csv");
-  }
-
-  function downloadCoverageTable() {
-    if (!generatedCoverageRows.length) {
-      alert("Generate a schedule first.");
-      return;
-    }
-    downloadTextFile(rowsToCSV(generatedCoverageRows), "weekly_staffing_coverage.csv");
-  }
-
-  function downloadScenarioSummary() {
-    if (!summaryRows.length) {
-      alert("Generate a schedule first.");
-      return;
-    }
-    downloadTextFile(rowsToCSV(summaryRows), "weekly_staffing_summary.csv");
-  }
-</script>
+    updateAll();
+  </script>
 </body>
 </html>
